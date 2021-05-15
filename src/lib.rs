@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms, trivial_casts, unused_lifetimes, unused_qualifications)]
 
-use curve25519_dalek::ristretto::RistrettoPoint;
+pub use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
 use strobe_rs::{SecParam, Strobe};
 
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn bad_password() {
         let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
-        let (salt_a,  a) = initiator.start();
+        let (salt_a, a) = initiator.start();
 
         let mut responder = Responder::new(b"Bea", b"Alice", b"my best guess");
         let (salt_b, b) = responder.start(salt_a, a);
@@ -233,7 +233,7 @@ mod tests {
         let mut responder = Responder::new(b"Bea", b"Alice", b"our shared secret");
         let (salt_b, b) = responder.start(salt_a, a);
 
-        let mut strobe_i = initiator.finish(salt_b,b);
+        let mut strobe_i = initiator.finish(salt_b, b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
@@ -273,7 +273,7 @@ mod tests {
         let (mut salt_b, b) = responder.start(salt_a, a);
         salt_b[2] ^= 1;
 
-        let mut strobe_i = initiator.finish(salt_b,b);
+        let mut strobe_i = initiator.finish(salt_b, b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
