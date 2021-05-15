@@ -7,6 +7,63 @@ pub use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
 use strobe_rs::{SecParam, Strobe};
 
+/// An asynchronous PAKE exchange.
+pub struct Exchanger {
+    cpace: Strobe,
+    d: Scalar,
+    x: RistrettoPoint,
+}
+
+impl Exchanger {
+    /// Create a new [Exchanger] with the given session ID, identities, and shared password.
+    pub fn new(session_id: &[u8], id_a: &[u8], id_b: &[u8], password: &[u8]) -> Exchanger {
+        // Initialize the protocol with all available associated data.
+        let mut cpace = Strobe::new(b"cpace-r255-strobe", SecParam::B256);
+        cpace.ad(&session_id, false);
+
+        // Add the ids in lexical order.
+        cpace.ad(if id_a < id_b { id_a } else { id_b }, false);
+        cpace.ad(if id_a < id_b { id_b } else { id_a }, false);
+
+        // Key with the password.
+        cpace.key(password, false);
+
+        // Generate a random scalar.
+        let mut r = [0u8; 64];
+        getrandom::getrandom(&mut r).expect("rng failure");
+        let d = Scalar::from_bytes_mod_order_wide(&r);
+
+        // Extract a generator point from the protocol PRF output.
+        cpace.prf(&mut r, false);
+        let g = RistrettoPoint::from_uniform_bytes(&r);
+
+        Exchanger { cpace, d, x: g * d }
+    }
+
+    /// The public point to be sent to the remote party.
+    pub fn send(&self) -> RistrettoPoint {
+        self.x
+    }
+
+    /// Given the public point from the remote party, unwrap the exchange into a synchronized Strobe
+    /// protocol.
+    pub fn receive(self, b: RistrettoPoint) -> Strobe {
+        // Move data from receiver.
+        let mut cpace = self.cpace;
+
+        let a_x = self.x.compress().to_bytes();
+        let b_x = b.compress().to_bytes();
+
+        // Add exchanged points as associated data in order.
+        cpace.ad(if a_x < b_x { &a_x } else { &b_x }, false);
+        cpace.ad(if a_x < b_x { &b_x } else { &a_x }, false);
+
+        cpace.key((b * self.d).compress().as_bytes(), false);
+
+        cpace
+    }
+}
+
 /// The state object of the protocol initiator.
 pub struct Initiator {
     cpace: Strobe,
@@ -302,5 +359,25 @@ mod tests {
         strobe_r.prf(&mut prf_r, false);
 
         assert_ne!(prf_r, prf_i);
+    }
+
+    #[test]
+    fn async_exchange() {
+        let alice = Exchanger::new(b"1234", b"Alice", b"Bea", b"secret");
+        let a_p = alice.send();
+
+        let bea = Exchanger::new(b"1234", b"Bea", b"Alice", b"secret");
+        let b_p = alice.send();
+
+        let mut alice = alice.receive(b_p);
+        let mut bea = bea.receive(a_p);
+
+        let mut prf_a = [0u8; 16];
+        alice.prf(&mut prf_a, false);
+
+        let mut prf_b = [0u8; 16];
+        bea.prf(&mut prf_b, false);
+
+        assert_ne!(prf_b, prf_a);
     }
 }
