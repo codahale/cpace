@@ -11,15 +11,14 @@ use strobe_rs::{SecParam, Strobe};
 pub struct Exchanger {
     cpace: Strobe,
     d: Scalar,
-    x: RistrettoPoint,
+    y: RistrettoPoint,
 }
 
 impl Exchanger {
-    /// Create a new [Exchanger] with the given session ID, identities, and shared password.
-    pub fn new(session_id: &[u8], id_a: &[u8], id_b: &[u8], password: &[u8]) -> Exchanger {
+    /// Create a new [Exchanger] with the given identities and shared password.
+    pub fn new(id_a: &[u8], id_b: &[u8], password: &[u8]) -> Exchanger {
         // Initialize the protocol with all available associated data.
         let mut cpace = Strobe::new(b"cpace-r255-strobe", SecParam::B256);
-        cpace.ad(&session_id, false);
 
         // Add the ids in lexical order.
         cpace.ad(if id_a < id_b { id_a } else { id_b }, false);
@@ -37,28 +36,37 @@ impl Exchanger {
         cpace.prf(&mut r, false);
         let g = RistrettoPoint::from_uniform_bytes(&r);
 
-        Exchanger { cpace, d, x: g * d }
+        Exchanger { cpace, d, y: g * d }
     }
 
     /// The public point to be sent to the remote party.
     pub fn send(&self) -> RistrettoPoint {
-        self.x
+        self.y
     }
 
     /// Given the public point from the remote party, unwrap the exchange into a synchronized Strobe
     /// protocol.
-    pub fn receive(self, b: RistrettoPoint) -> Strobe {
-        // Move data from receiver.
+    pub fn receive(self, y: RistrettoPoint) -> Strobe {
+        // Move the STROBE protocol from the receiver.
         let mut cpace = self.cpace;
 
-        let a_x = self.x.compress().to_bytes();
-        let b_x = b.compress().to_bytes();
+        // Compress both points so we can order them lexically.
+        let y_local = self.y.compress().to_bytes();
+        let y_remote = y.compress().to_bytes();
 
-        // Add exchanged points as associated data in order.
-        cpace.ad(if a_x < b_x { &a_x } else { &b_x }, false);
-        cpace.ad(if a_x < b_x { &b_x } else { &a_x }, false);
+        // Order send/receive operations lexically. If the local point's compressed form is
+        // lexically before the remote one, mark the send as happening first. Otherwise, mark the
+        // receive as happening first.
+        if y_local < y_remote {
+            cpace.send_clr(&y_local, false);
+            cpace.recv_clr(&y_remote, false);
+        } else {
+            cpace.recv_clr(&y_remote, false);
+            cpace.send_clr(&y_local, false);
+        }
 
-        cpace.key((b * self.d).compress().as_bytes(), false);
+        // Key the protocol with the shared secret point G*d*d.
+        cpace.key((y * self.d).compress().as_bytes(), false);
 
         cpace
     }
@@ -363,10 +371,10 @@ mod tests {
 
     #[test]
     fn async_exchange() {
-        let alice = Exchanger::new(b"1234", b"Alice", b"Bea", b"secret");
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret");
         let a_p = alice.send();
 
-        let bea = Exchanger::new(b"1234", b"Bea", b"Alice", b"secret");
+        let bea = Exchanger::new(b"Bea", b"Alice", b"secret");
         let b_p = alice.send();
 
         let mut alice = alice.receive(b_p);
