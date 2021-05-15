@@ -61,11 +61,12 @@ impl Initiator {
     /// Finish a key exchange.
     ///
     /// Returns a [Strobe] protocol with the same initial state as the responder.
-    pub fn finish(self, b: RistrettoPoint) -> Strobe {
+    pub fn finish(self, salt: [u8; 16], b: RistrettoPoint) -> Strobe {
         // Move the protocol to a local variable.
         let mut cpace = self.cpace;
 
-        // Receive the responder's public point.
+        // Receive the responder's salt and public point.
+        cpace.recv_clr(&salt, false);
         cpace.recv_clr(b.compress().as_bytes(), false);
 
         // Key the protocol with the shared secret point.
@@ -79,6 +80,7 @@ impl Initiator {
 /// The state object of the protocol responder.
 pub struct Responder {
     cpace: Strobe,
+    salt: [u8; 16],
     d: Scalar,
 }
 
@@ -98,13 +100,17 @@ impl Responder {
         getrandom::getrandom(&mut r).expect("rng failure");
         let d = Scalar::from_bytes_mod_order_wide(&r);
 
-        Responder { cpace, d }
+        // Generate a random salt.
+        let mut salt = [0u8; 16];
+        getrandom::getrandom(&mut salt).expect("rng failure");
+
+        Responder { cpace, salt, d }
     }
 
     /// Start a key exchange.
     ///
     /// Returns a [RistrettoPoint] which must be sent to the initiator.
-    pub fn start(&mut self, salt: [u8; 16], a: RistrettoPoint) -> RistrettoPoint {
+    pub fn start(&mut self, salt: [u8; 16], a: RistrettoPoint) -> ([u8; 16], RistrettoPoint) {
         // Receive the salt from the initiator.
         self.cpace.recv_clr(&salt, false);
 
@@ -119,14 +125,15 @@ impl Responder {
         // Receive the initiator's public point.
         self.cpace.recv_clr(a.compress().as_bytes(), false);
 
-        // Send the initiator the second public point.
+        // Send the initiator the second salt and public point.
+        self.cpace.send_clr(&self.salt, false);
         self.cpace.send_clr(b.compress().as_bytes(), false);
 
         // Key the protocol with the shared secret point.
         self.cpace.key((a * self.d).compress().as_bytes(), false);
 
-        // Return the second public point to the initiator.
-        b
+        // Return the second salt and public point to the initiator.
+        (self.salt, b)
     }
 
     /// Finish a key exchange.
@@ -144,12 +151,12 @@ mod tests {
     #[test]
     fn full_exchange() {
         let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
-        let (salt, a) = initiator.start();
+        let (salt_a, a) = initiator.start();
 
         let mut responder = Responder::new(b"Bea", b"Alice", b"our shared secret");
-        let b = responder.start(salt, a);
+        let (salt_b, b) = responder.start(salt_a, a);
 
-        let mut strobe_i = initiator.finish(b);
+        let mut strobe_i = initiator.finish(salt_b, b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
@@ -163,12 +170,12 @@ mod tests {
     #[test]
     fn bad_initiator_id() {
         let mut initiator = Initiator::new(b"Hank", b"Bea", b"our shared secret");
-        let (salt, a) = initiator.start();
+        let (salt_a, a) = initiator.start();
 
         let mut responder = Responder::new(b"Bea", b"Alice", b"our shared secret");
-        let b = responder.start(salt, a);
+        let (salt_b, b) = responder.start(salt_a, a);
 
-        let mut strobe_i = initiator.finish(b);
+        let mut strobe_i = initiator.finish(salt_b, b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
@@ -182,12 +189,12 @@ mod tests {
     #[test]
     fn bad_responder_id() {
         let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
-        let (salt, a) = initiator.start();
+        let (salt_a, a) = initiator.start();
 
         let mut responder = Responder::new(b"Frank", b"Alice", b"our shared secret");
-        let b = responder.start(salt, a);
+        let (salt_b, b) = responder.start(salt_a, a);
 
-        let mut strobe_i = initiator.finish(b);
+        let mut strobe_i = initiator.finish(salt_b, b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
@@ -201,12 +208,12 @@ mod tests {
     #[test]
     fn bad_password() {
         let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
-        let (salt, a) = initiator.start();
+        let (salt_a,  a) = initiator.start();
 
         let mut responder = Responder::new(b"Bea", b"Alice", b"my best guess");
-        let b = responder.start(salt, a);
+        let (salt_b, b) = responder.start(salt_a, a);
 
-        let mut strobe_i = initiator.finish(b);
+        let mut strobe_i = initiator.finish(salt_b, b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
@@ -218,15 +225,15 @@ mod tests {
     }
 
     #[test]
-    fn bad_salt() {
+    fn bad_initiator_salt() {
         let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
-        let (mut salt, a) = initiator.start();
-        salt[2] ^= 1;
+        let (mut salt_a, a) = initiator.start();
+        salt_a[2] ^= 1;
 
         let mut responder = Responder::new(b"Bea", b"Alice", b"our shared secret");
-        let b = responder.start(salt, a);
+        let (salt_b, b) = responder.start(salt_a, a);
 
-        let mut strobe_i = initiator.finish(b);
+        let mut strobe_i = initiator.finish(salt_b,b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
@@ -240,13 +247,33 @@ mod tests {
     #[test]
     fn bad_initiator_point() {
         let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
-        let (salt, _) = initiator.start();
+        let (salt_a, _) = initiator.start();
         let a = RistrettoPoint::from_uniform_bytes(&[69u8; 64]);
 
         let mut responder = Responder::new(b"Bea", b"Alice", b"our shared secret");
-        let b = responder.start(salt, a);
+        let (salt_b, b) = responder.start(salt_a, a);
 
-        let mut strobe_i = initiator.finish(b);
+        let mut strobe_i = initiator.finish(salt_b, b);
+        let mut prf_i = [0u8; 16];
+        strobe_i.prf(&mut prf_i, false);
+
+        let mut strobe_r = responder.finish();
+        let mut prf_r = [0u8; 16];
+        strobe_r.prf(&mut prf_r, false);
+
+        assert_ne!(prf_r, prf_i);
+    }
+
+    #[test]
+    fn bad_responder_salt() {
+        let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
+        let (salt_a, a) = initiator.start();
+
+        let mut responder = Responder::new(b"Bea", b"Alice", b"our shared secret");
+        let (mut salt_b, b) = responder.start(salt_a, a);
+        salt_b[2] ^= 1;
+
+        let mut strobe_i = initiator.finish(salt_b,b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
@@ -260,13 +287,13 @@ mod tests {
     #[test]
     fn bad_responder_point() {
         let mut initiator = Initiator::new(b"Alice", b"Bea", b"our shared secret");
-        let (salt, a) = initiator.start();
+        let (salt_b, a) = initiator.start();
 
         let mut responder = Responder::new(b"Bea", b"Alice", b"our shared secret");
-        let _ = responder.start(salt, a);
+        let (salt_b, _) = responder.start(salt_b, a);
         let b = RistrettoPoint::from_uniform_bytes(&[42u8; 64]);
 
-        let mut strobe_i = initiator.finish(b);
+        let mut strobe_i = initiator.finish(salt_b, b);
         let mut prf_i = [0u8; 16];
         strobe_i.prf(&mut prf_i, false);
 
