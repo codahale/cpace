@@ -8,3 +8,10 @@ edition = "2018"
 curve25519-dalek = "3"
 getrandom = "0.2"
 strobe-rs = "0.6"
+
+[dev-dependencies]
+criterion = { version = "0.3", features = ["html_reports"] }
+
+[[bench]]
+name = "exchange_bench"
+harness = false
