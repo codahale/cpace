@@ -1,5 +1,6 @@
 //! An implementation of a CPACE-inspired PAKE using ristretto255 and STROBE.
 
+#![no_std]
 #![forbid(unsafe_code)]
 #![warn(
     missing_docs,
