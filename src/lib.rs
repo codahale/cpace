@@ -79,13 +79,13 @@ mod tests {
     #[test]
     fn full_exchange() {
         let alice = Exchanger::new(b"Alice", b"Bea", b"secret");
-        let a_p = alice.send();
+        let y_alice = alice.send();
 
         let bea = Exchanger::new(b"Bea", b"Alice", b"secret");
-        let b_p = alice.send();
+        let y_bea = bea.send();
 
-        let mut alice = alice.receive(b_p);
-        let mut bea = bea.receive(a_p);
+        let mut alice = alice.receive(y_bea);
+        let mut bea = bea.receive(y_alice);
 
         let mut prf_a = [0u8; 16];
         alice.prf(&mut prf_a, false);
@@ -93,6 +93,6 @@ mod tests {
         let mut prf_b = [0u8; 16];
         bea.prf(&mut prf_b, false);
 
-        assert_ne!(prf_b, prf_a);
+        assert_eq!(prf_b, prf_a);
     }
 }
