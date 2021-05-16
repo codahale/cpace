@@ -1,7 +1,16 @@
 //! An implementation of a CPACE-inspired PAKE using ristretto255 and STROBE.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, rust_2018_idioms, trivial_casts, unused_lifetimes, unused_qualifications)]
+#![warn(
+    missing_docs,
+    rust_2018_idioms,
+    trivial_casts,
+    unused_lifetimes,
+    unused_qualifications,
+    clippy::cognitive_complexity,
+    clippy::missing_const_for_fn,
+    clippy::needless_borrow
+)]
 
 pub use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
@@ -51,7 +60,7 @@ impl Exchanger {
     }
 
     /// The public point to be sent to the remote party.
-    pub fn send(&self) -> RistrettoPoint {
+    pub const fn send(&self) -> RistrettoPoint {
         self.y
     }
 
