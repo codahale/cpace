@@ -85,7 +85,7 @@ impl Exchanger {
             cpace.send_clr(&y_local, false);
         }
 
-        // Key the protocol with the shared secret point G*d*d.
+        // Key the protocol with the shared secret point (G*d')*d.
         cpace.key((y * self.d).compress().as_bytes(), false);
 
         cpace
