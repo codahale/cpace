@@ -26,12 +26,7 @@ pub struct Exchanger {
 impl Exchanger {
     /// Create a new [Exchanger] with the given identities, shared password, and optional session
     /// ID.
-    pub fn new(
-        local_id: &[u8],
-        remote_id: &[u8],
-        password: &[u8],
-        session_id: Option<&[u8]>,
-    ) -> Exchanger {
+    pub fn new(local_id: &[u8], remote_id: &[u8], password: &[u8], session_id: &[u8]) -> Exchanger {
         // Initialize the protocol with all available associated data.
         let mut cpace = Strobe::new(b"cpace-r255-strobe", SecParam::B256);
 
@@ -39,10 +34,8 @@ impl Exchanger {
         cpace.ad(if local_id < remote_id { local_id } else { remote_id }, false);
         cpace.ad(if local_id < remote_id { remote_id } else { local_id }, false);
 
-        // Add the session ID, if any.
-        if let Some(id) = session_id {
-            cpace.ad(id, false);
-        }
+        // Add the session ID.
+        cpace.ad(session_id, false);
 
         // Key with the password.
         cpace.key(password, false);
@@ -98,10 +91,10 @@ mod tests {
 
     #[test]
     fn full_exchange() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", None);
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", None);
+        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -118,10 +111,10 @@ mod tests {
 
     #[test]
     fn bad_local_id() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", None);
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Hank", b"Alice", b"secret", None);
+        let bea = Exchanger::new(b"Hank", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -138,10 +131,10 @@ mod tests {
 
     #[test]
     fn bad_remote_id() {
-        let alice = Exchanger::new(b"Alice", b"Hank", b"secret", None);
+        let alice = Exchanger::new(b"Alice", b"Hank", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", None);
+        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -158,30 +151,10 @@ mod tests {
 
     #[test]
     fn bad_password() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", None);
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"dingus", None);
-        let y_bea = bea.send();
-
-        let mut alice = alice.receive(y_bea);
-        let mut bea = bea.receive(y_alice);
-
-        let mut prf_a = [0u8; 16];
-        alice.prf(&mut prf_a, false);
-
-        let mut prf_b = [0u8; 16];
-        bea.prf(&mut prf_b, false);
-
-        assert_ne!(prf_b, prf_a);
-    }
-
-    #[test]
-    fn missing_session_id() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", Some(b"ok then"));
-        let y_alice = alice.send();
-
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", None);
+        let bea = Exchanger::new(b"Bea", b"Alice", b"dingus", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -198,10 +171,10 @@ mod tests {
 
     #[test]
     fn bad_session_id() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", Some(b"ok then"));
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"one");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", Some(b"well then"));
+        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"two");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -218,10 +191,10 @@ mod tests {
 
     #[test]
     fn bad_point() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", None);
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
         let y_alice = RistrettoPoint::from_uniform_bytes(&[69u8; 64]);
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", None);
+        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
