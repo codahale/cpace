@@ -95,4 +95,84 @@ mod tests {
 
         assert_eq!(prf_b, prf_a);
     }
+
+    #[test]
+    fn bad_id_a() {
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret");
+        let y_alice = alice.send();
+
+        let bea = Exchanger::new(b"Hank", b"Alice", b"secret");
+        let y_bea = bea.send();
+
+        let mut alice = alice.receive(y_bea);
+        let mut bea = bea.receive(y_alice);
+
+        let mut prf_a = [0u8; 16];
+        alice.prf(&mut prf_a, false);
+
+        let mut prf_b = [0u8; 16];
+        bea.prf(&mut prf_b, false);
+
+        assert_ne!(prf_b, prf_a);
+    }
+
+    #[test]
+    fn bad_id_b() {
+        let alice = Exchanger::new(b"Alice", b"Hank", b"secret");
+        let y_alice = alice.send();
+
+        let bea = Exchanger::new(b"Bea", b"Alice", b"secret");
+        let y_bea = bea.send();
+
+        let mut alice = alice.receive(y_bea);
+        let mut bea = bea.receive(y_alice);
+
+        let mut prf_a = [0u8; 16];
+        alice.prf(&mut prf_a, false);
+
+        let mut prf_b = [0u8; 16];
+        bea.prf(&mut prf_b, false);
+
+        assert_ne!(prf_b, prf_a);
+    }
+
+    #[test]
+    fn bad_password() {
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret");
+        let y_alice = alice.send();
+
+        let bea = Exchanger::new(b"Bea", b"Alice", b"dingus");
+        let y_bea = bea.send();
+
+        let mut alice = alice.receive(y_bea);
+        let mut bea = bea.receive(y_alice);
+
+        let mut prf_a = [0u8; 16];
+        alice.prf(&mut prf_a, false);
+
+        let mut prf_b = [0u8; 16];
+        bea.prf(&mut prf_b, false);
+
+        assert_ne!(prf_b, prf_a);
+    }
+
+    #[test]
+    fn bad_point() {
+        let alice = Exchanger::new(b"Alice", b"Bea", b"secret");
+        let y_alice = RistrettoPoint::from_uniform_bytes(&[69u8; 64]);
+
+        let bea = Exchanger::new(b"Bea", b"Alice", b"secret");
+        let y_bea = bea.send();
+
+        let mut alice = alice.receive(y_bea);
+        let mut bea = bea.receive(y_alice);
+
+        let mut prf_a = [0u8; 16];
+        alice.prf(&mut prf_a, false);
+
+        let mut prf_b = [0u8; 16];
+        bea.prf(&mut prf_b, false);
+
+        assert_ne!(prf_b, prf_a);
+    }
 }
