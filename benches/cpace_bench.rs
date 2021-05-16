@@ -9,14 +9,14 @@ fn bench_exchanger(c: &mut Criterion) {
                 black_box(b"Alice"),
                 black_box(b"Bea"),
                 black_box(b"our shared secret"),
-                b"",
+                black_box(b"session id"),
             );
 
             let bea = Exchanger::new(
                 black_box(b"Bea"),
                 black_box(b"Alice"),
                 black_box(b"our shared secret"),
-                b"",
+                black_box(b"session id"),
             );
 
             let y_alice = alice.send();
