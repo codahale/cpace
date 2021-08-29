@@ -18,7 +18,6 @@ use curve25519_dalek::scalar::Scalar;
 use strobe_rs::{SecParam, Strobe};
 
 /// The role of a given exchanger.
-#[derive(Eq, PartialEq)]
 pub enum Role {
     /// Initiators are exchangers that have initiated the session.
     INITIATOR,
@@ -49,12 +48,15 @@ impl Exchanger {
 
         // If this exchanger is the initiator, mark the local ID as sent first. Otherwise, mark the
         // remote ID as being received first.
-        if role == Role::INITIATOR {
-            cpace.send_clr(local_id, false);
-            cpace.recv_clr(remote_id, false);
-        } else {
-            cpace.recv_clr(remote_id, false);
-            cpace.send_clr(local_id, false);
+        match role {
+            Role::INITIATOR => {
+                cpace.send_clr(local_id, false);
+                cpace.recv_clr(remote_id, false);
+            }
+            Role::RESPONDER => {
+                cpace.recv_clr(remote_id, false);
+                cpace.send_clr(local_id, false);
+            }
         }
 
         // Add the session ID.
@@ -93,12 +95,15 @@ impl Exchanger {
         // If this exchanger is an initiator, mark the local point as being sent first. This fixes
         // potential concurrent replay attacks in a peer-to-peer setting, with an attacker sending
         // us our own points and replaying our own messages as if they came from the recipient.
-        if self.role == Role::INITIATOR {
-            cpace.send_clr(&y_local, false);
-            cpace.recv_clr(&y_remote, false);
-        } else {
-            cpace.recv_clr(&y_remote, false);
-            cpace.send_clr(&y_local, false);
+        match self.role {
+            Role::INITIATOR => {
+                cpace.send_clr(&y_local, false);
+                cpace.recv_clr(&y_remote, false);
+            }
+            Role::RESPONDER => {
+                cpace.recv_clr(&y_remote, false);
+                cpace.send_clr(&y_local, false);
+            }
         }
 
         // Key the protocol with the shared secret point (G*d')*d.
