@@ -17,8 +17,18 @@ pub use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
 use strobe_rs::{SecParam, Strobe};
 
+/// The role of a given exchanger.
+#[derive(Eq, PartialEq)]
+pub enum Role {
+    /// Initiators are exchangers that have initiated the session.
+    INITIATOR,
+    /// Responders are exchangers that are responding to an initiator.
+    RESPONDER,
+}
+
 /// An asynchronous PAKE exchange.
 pub struct Exchanger {
+    role: Role,
     cpace: Strobe,
     d: Scalar,
     y: RistrettoPoint,
@@ -27,13 +37,25 @@ pub struct Exchanger {
 impl Exchanger {
     /// Create a new [Exchanger] with the given identities, shared password, and optional session
     /// ID.
-    pub fn new(local_id: &[u8], remote_id: &[u8], password: &[u8], session_id: &[u8]) -> Exchanger {
+    pub fn new(
+        role: Role,
+        local_id: &[u8],
+        remote_id: &[u8],
+        password: &[u8],
+        session_id: &[u8],
+    ) -> Exchanger {
         // Initialize the protocol with all available associated data.
         let mut cpace = Strobe::new(b"cpace-r255-strobe", SecParam::B256);
 
-        // Add the identities in lexical order.
-        cpace.ad(if local_id < remote_id { local_id } else { remote_id }, false);
-        cpace.ad(if local_id < remote_id { remote_id } else { local_id }, false);
+        // If this exchanger is the initiator, mark the local ID as sent first. Otherwise, mark the
+        // remote ID as being received first.
+        if role == Role::INITIATOR {
+            cpace.send_clr(local_id, false);
+            cpace.recv_clr(remote_id, false);
+        } else {
+            cpace.recv_clr(remote_id, false);
+            cpace.send_clr(local_id, false);
+        }
 
         // Add the session ID.
         cpace.ad(session_id, false);
@@ -50,7 +72,7 @@ impl Exchanger {
         cpace.prf(&mut r, false);
         let g = RistrettoPoint::from_uniform_bytes(&r);
 
-        Exchanger { cpace, d, y: g * d }
+        Exchanger { role, cpace, d, y: g * d }
     }
 
     /// The public point to be sent to the remote party.
@@ -68,10 +90,10 @@ impl Exchanger {
         let y_local = self.y.compress().to_bytes();
         let y_remote = y.compress().to_bytes();
 
-        // Order send/receive operations lexically. If the local point's compressed form is
-        // lexically before the remote one, mark the send as happening first. Otherwise, mark the
-        // receive as happening first.
-        if y_local < y_remote {
+        // If this exchanger is an initiator, mark the local point as being sent first. This fixes
+        // potential concurrent replay attacks in a peer-to-peer setting, with an attacker sending
+        // us our own points and replaying our own messages as if they came from the recipient.
+        if self.role == Role::INITIATOR {
             cpace.send_clr(&y_local, false);
             cpace.recv_clr(&y_remote, false);
         } else {
@@ -92,10 +114,10 @@ mod tests {
 
     #[test]
     fn full_exchange() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
+        let alice = Exchanger::new(Role::INITIATOR, b"Alice", b"Bea", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"");
+        let bea = Exchanger::new(Role::RESPONDER, b"Bea", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -112,10 +134,10 @@ mod tests {
 
     #[test]
     fn bad_local_id() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
+        let alice = Exchanger::new(Role::INITIATOR, b"Alice", b"Bea", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Hank", b"Alice", b"secret", b"");
+        let bea = Exchanger::new(Role::RESPONDER, b"Hank", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -132,10 +154,10 @@ mod tests {
 
     #[test]
     fn bad_remote_id() {
-        let alice = Exchanger::new(b"Alice", b"Hank", b"secret", b"");
+        let alice = Exchanger::new(Role::INITIATOR, b"Alice", b"Hank", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"");
+        let bea = Exchanger::new(Role::RESPONDER, b"Bea", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -152,10 +174,10 @@ mod tests {
 
     #[test]
     fn bad_password() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
+        let alice = Exchanger::new(Role::INITIATOR, b"Alice", b"Bea", b"secret", b"");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"dingus", b"");
+        let bea = Exchanger::new(Role::RESPONDER, b"Bea", b"Alice", b"dingus", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -172,10 +194,10 @@ mod tests {
 
     #[test]
     fn bad_session_id() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"one");
+        let alice = Exchanger::new(Role::INITIATOR, b"Alice", b"Bea", b"secret", b"one");
         let y_alice = alice.send();
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"two");
+        let bea = Exchanger::new(Role::RESPONDER, b"Bea", b"Alice", b"secret", b"two");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -192,10 +214,10 @@ mod tests {
 
     #[test]
     fn bad_point() {
-        let alice = Exchanger::new(b"Alice", b"Bea", b"secret", b"");
+        let alice = Exchanger::new(Role::INITIATOR, b"Alice", b"Bea", b"secret", b"");
         let y_alice = RistrettoPoint::from_uniform_bytes(&[69u8; 64]);
 
-        let bea = Exchanger::new(b"Bea", b"Alice", b"secret", b"");
+        let bea = Exchanger::new(Role::RESPONDER, b"Bea", b"Alice", b"secret", b"");
         let y_bea = bea.send();
 
         let mut alice = alice.receive(y_bea);
@@ -207,6 +229,36 @@ mod tests {
         let mut prf_b = [0u8; 16];
         bea.prf(&mut prf_b, false);
 
+        assert_ne!(prf_b, prf_a);
+    }
+
+    #[test]
+    fn replay_attack() {
+        // Alice initiates a session with Bea, but Mallory intercepts the request.
+        let alice_send = Exchanger::new(Role::INITIATOR, b"Alice", b"Bea", b"secret", b"");
+        let y_alice_send = alice_send.send();
+
+        // Alice receives a session request from Mallory pretending to be Bea.
+        let alice_recv = Exchanger::new(Role::RESPONDER, b"Alice", b"Bea", b"secret", b"");
+        let y_alice_recv = alice_recv.send();
+
+        // In the Alice-initiated session, Mallory replies to Alice with her own point from the
+        // Mallory-initiated session.
+        let mut alice_send = alice_send.receive(y_alice_recv);
+
+        // In the Mallory-initiated session, Mallory replies to Alice with her own point from the
+        // Alice-initiated session.
+        let mut alice_recv = alice_recv.receive(y_alice_send);
+
+        // Now when Alice sends a message to who she thinks is Bea, Mallory can record it.
+        let mut prf_a = [0u8; 16];
+        alice_send.prf(&mut prf_a, false);
+
+        // And Mallory can send that same message to Alice, who will believe it's from Bea.
+        let mut prf_b = [0u8; 16];
+        alice_recv.prf(&mut prf_b, false);
+
+        // But the y_alice_send point was constructed with a different generator.
         assert_ne!(prf_b, prf_a);
     }
 }

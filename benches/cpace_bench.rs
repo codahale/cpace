@@ -1,11 +1,12 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use cpace::Exchanger;
+use cpace::{Exchanger, Role};
 
 fn bench_exchanger(c: &mut Criterion) {
     c.bench_function("exchanger", |b| {
         b.iter(|| {
             let alice = Exchanger::new(
+                Role::INITIATOR,
                 black_box(b"Alice"),
                 black_box(b"Bea"),
                 black_box(b"our shared secret"),
@@ -13,6 +14,7 @@ fn bench_exchanger(c: &mut Criterion) {
             );
 
             let bea = Exchanger::new(
+                Role::RESPONDER,
                 black_box(b"Bea"),
                 black_box(b"Alice"),
                 black_box(b"our shared secret"),
