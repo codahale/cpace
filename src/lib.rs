@@ -25,6 +25,25 @@ pub enum Role {
     RESPONDER,
 }
 
+impl Role {
+    /// Record local and remote data according to role. As an initiator, mark the local data as
+    /// being sent first; as a responder, mark the remote data as being received first. This fixes
+    /// potential concurrent replay attacks in a peer-to-peer setting, with an attacker sending us
+    /// our own points and replaying our own messages as if they came from the recipient.
+    fn record(&self, cpace: &mut Strobe, local: &[u8], remote: &[u8]) {
+        match self {
+            Role::INITIATOR => {
+                cpace.send_clr(local, false);
+                cpace.recv_clr(remote, false);
+            }
+            Role::RESPONDER => {
+                cpace.recv_clr(remote, false);
+                cpace.send_clr(local, false);
+            }
+        }
+    }
+}
+
 /// An asynchronous PAKE exchange.
 pub struct Exchanger {
     role: Role,
@@ -46,18 +65,8 @@ impl Exchanger {
         // Initialize the protocol with all available associated data.
         let mut cpace = Strobe::new(b"cpace-r255-strobe", SecParam::B256);
 
-        // If this exchanger is the initiator, mark the local ID as sent first. Otherwise, mark the
-        // remote ID as being received first.
-        match role {
-            Role::INITIATOR => {
-                cpace.send_clr(local_id, false);
-                cpace.recv_clr(remote_id, false);
-            }
-            Role::RESPONDER => {
-                cpace.recv_clr(remote_id, false);
-                cpace.send_clr(local_id, false);
-            }
-        }
+        // Record the local and remote IDs according to role.
+        role.record(&mut cpace, local_id, remote_id);
 
         // Add the session ID.
         cpace.ad(session_id, false);
@@ -88,23 +97,8 @@ impl Exchanger {
         // Move the STROBE protocol from the receiver.
         let mut cpace = self.cpace;
 
-        // Compress both points so we can order them lexically.
-        let y_local = self.y.compress().to_bytes();
-        let y_remote = y.compress().to_bytes();
-
-        // If this exchanger is an initiator, mark the local point as being sent first. This fixes
-        // potential concurrent replay attacks in a peer-to-peer setting, with an attacker sending
-        // us our own points and replaying our own messages as if they came from the recipient.
-        match self.role {
-            Role::INITIATOR => {
-                cpace.send_clr(&y_local, false);
-                cpace.recv_clr(&y_remote, false);
-            }
-            Role::RESPONDER => {
-                cpace.recv_clr(&y_remote, false);
-                cpace.send_clr(&y_local, false);
-            }
-        }
+        // Record local and remote points according to role.
+        self.role.record(&mut cpace, &self.y.compress().to_bytes(), &y.compress().to_bytes());
 
         // Key the protocol with the shared secret point (G*d')*d.
         cpace.key((y * self.d).compress().as_bytes(), false);
