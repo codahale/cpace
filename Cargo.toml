@@ -2,7 +2,7 @@
 name = "cpace"
 version = "0.1.0"
 authors = ["Coda Hale <coda.hale@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 curve25519-dalek = "3"
